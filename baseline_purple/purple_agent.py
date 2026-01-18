@@ -313,4 +313,40 @@ class PurpleAgent:
         # Load task definition
         task_def = self._get_task_definition(task_id)
         if not task_def:
-            self._log(
+            self._log(f"ERROR: Task {task_id} not found")
+            return False
+        
+        # Configure mock service
+        if not self._configure_mock(mock_url, task_def):
+            return False
+        
+        # Extract parameters
+        constraints = task_def.get("constraints", {})
+        paging_mode = constraints.get("paging_mode", "page")
+        page_size = constraints.get("page_size", 500)
+        max_requests = constraints.get("max_requests", 50)
+        total_rows = constraints.get("total_rows", 1000)
+        dedup_key = ["year", "reporter", "partner", "flow", "hs", "record_id"]
+        
+        # Fetch all records
+        rows = self._fetch_all_pages(mock_url, paging_mode, page_size, max_requests, total_rows)
+        if not rows:
+            self._log(f"ERROR: No rows fetched")
+            return False
+        
+        # Process rows
+        processed_rows, totals_dropped = self._process_rows(rows, task_id, dedup_key)
+        
+        # Write outputs
+        output_path = Path(output_dir)
+        self._write_outputs(
+            output_path,
+            task_id,
+            task_def["query"],
+            processed_rows,
+            dedup_key,
+            totals_dropped,
+        )
+        
+        self._log(f"INFO: Task {task_id} complete (output: {output_path})")
+        return True

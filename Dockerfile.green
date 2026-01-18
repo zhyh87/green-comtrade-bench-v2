@@ -1,10 +1,12 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
+# Copy pyproject.toml and source code
+COPY pyproject.toml /app/
 COPY src /app/src
+
+# Install package and dependencies
+RUN pip install --no-cache-dir .
 
 ENV MOCK_URL=http://mock-comtrade:8000
 ENV PURPLE_OUTPUT_ROOT=/workspace/purple_output

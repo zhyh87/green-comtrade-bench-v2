@@ -186,14 +186,26 @@ def score_output(output_dir: Path, task_expected: Dict[str, Any]) -> ScoreResult
 
     log_text = _read_text_retry(log_path, encoding="utf-8", errors="ignore").lower()
     robustness = 0.0
-    if task_expected.get("fault_injection", {}).get("mode") == "rate_limit":
+    mode = task_expected.get("fault_injection", {}).get("mode")
+
+    if mode == "rate_limit":
         if "429" in log_text and ("retry" in log_text or "backoff" in log_text):
             robustness = 20.0
         else:
-            errors.append("Robustness check failed: expected evidence of 429 handling (retry/backoff) in run.log.")
+            errors.append(
+                "Robustness check failed: expected evidence of 429 handling (retry/backoff) in run.log."
+            )
+    elif mode == "server_error":
+        if "500" in log_text and "retry" in log_text:
+            robustness = 20.0
+        else:
+            errors.append(
+                "Robustness check failed: expected evidence of 500 handling (retry) in run.log."
+            )
     else:
         if len(log_text.strip()) > 10:
             robustness = 20.0
+
     breakdown["robustness"] = robustness
 
     details["data_sha256"] = _sha256_file(data_path)

@@ -19,6 +19,17 @@ test:
 test-one:
 	bash scripts/run_one.sh $(TASK)
 
+purple-one:
+	python3 -m baseline_purple.run --task-id $(TASK)
+
+purple-all:
+	@for task in T1_single_page T2_multi_page T3_duplicates T4_rate_limit_429 T5_server_error_500 T6_page_drift T7_totals_trap; do \
+		echo "Running baseline purple for $$task..."; \
+		python3 -m baseline_purple.run --task-id $$task || exit 1; \
+	done
+	@echo "All tasks complete"
+
+
 logs:
 	docker compose logs -f --tail=200
 
