@@ -156,10 +156,22 @@ def a2a_agent_card() -> Dict[str, Any]:
     return AGENT_CARD
 
 
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    """Health check endpoint."""
+    return {"status": "ok"}
+
+
 @app.get("/healthz")
 def healthz() -> Dict[str, Any]:
     """Health check endpoint."""
-    return {"ok": True}
+    return {"status": "ok"}
+
+
+@app.get("/.well-known/agent-card.json")
+def a2a_agent_card_json() -> Dict[str, Any]:
+    """A2A Agent Card discovery endpoint (alternate path)."""
+    return AGENT_CARD
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +392,17 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
 
-    uvicorn.run("src.agent:app", host=APP_HOST, port=APP_PORT, reload=False)
+    parser = argparse.ArgumentParser(description="Green Comtrade Bench Agent")
+    parser.add_argument("--host", default=APP_HOST, help="Server host")
+    parser.add_argument("--port", type=int, default=APP_PORT, help="Server port")
+    parser.add_argument("--card-url", default=None, help="Agent card URL (ignored)")
+    
+    # Parse known args, ignore unknown for compose compatibility
+    args, unknown = parser.parse_known_args()
+    if unknown:
+        print(f"Ignoring unknown args: {unknown}")
+
+    uvicorn.run("src.agent:app", host=args.host, port=args.port, reload=False)
