@@ -4,6 +4,28 @@ set -euo pipefail
 ROOT="${1:-_purple_output}"
 SERVICE="${SERVICE:-green-agent}"
 
+# Ensure green-agent is running before staging fixtures
+echo "Checking docker compose status..."
+docker compose ps
+
+if ! docker compose ps --status=running | grep -q "$SERVICE"; then
+  echo "Service $SERVICE not running, starting..."
+  docker compose up -d "$SERVICE"
+  sleep 2
+fi
+
+# Re-check after start attempt
+if ! docker compose ps --status=running | grep -q "$SERVICE"; then
+  echo "ERROR: $SERVICE still not running after start attempt" >&2
+  echo "--- docker compose ps ---" >&2
+  docker compose ps >&2
+  echo "--- docker compose logs $SERVICE ---" >&2
+  docker compose logs --no-color --tail=200 "$SERVICE" >&2
+  exit 1
+fi
+
+echo "Service $SERVICE is running"
+
 if [ ! -d "$ROOT" ]; then
   echo "missing fixtures dir: $ROOT" >&2
   exit 1
