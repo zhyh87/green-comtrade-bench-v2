@@ -58,6 +58,11 @@ AGENT_CARD = {
     "description": "Green Agent benchmark for Comtrade API evaluation",
     "endpoints": {"rpc": "/a2a/rpc", "health": "/healthz"},
     "capabilities": {"streaming": False, "pushNotifications": False},
+    "defaultInputModes": ["application/json"],
+    "defaultOutputModes": ["application/json"],
+    "skills": [
+        {"name": "a2a.rpc", "description": "Handle A2A JSON-RPC requests via /a2a/rpc"}
+    ],
 }
 
 APP_HOST = os.environ.get("HOST", "0.0.0.0")
