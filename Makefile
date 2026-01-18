@@ -10,6 +10,8 @@ stage:
 	bash scripts/stage_fixtures.sh
 
 fixtures:
+	mkdir -p _purple_output
+	@if [ "$$CI" = "true" ]; then sudo chown -R $$(id -u):$$(id -g) _purple_output || true; fi
 	python3 gen_fixtures.py
 	bash scripts/stage_fixtures.sh
 
