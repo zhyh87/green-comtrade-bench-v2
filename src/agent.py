@@ -402,6 +402,45 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
         )
 
     # -------------------------------------------------------------------------
+    # message/send - Simple message-based interaction
+    # -------------------------------------------------------------------------
+    elif method == "message/send":
+        try:
+            # Extract task info from params.message.content
+            message = params.get("message", {})
+            content = message.get("content", {})
+            
+            if isinstance(content, str):
+                # Try parsing as JSON if string
+                import json
+                try:
+                    content = json.loads(content)
+                except json.JSONDecodeError:
+                    return _jsonrpc_error(req_id, -32602, "Invalid params: content must be valid JSON object")
+            
+            task_id = content.get("task_id")
+            if not task_id:
+                return _jsonrpc_error(req_id, -32602, "Invalid params: task_id is required in content")
+            
+            purple_output_subdir = content.get("purple_output_subdir")
+            
+            # Run assessment using shared logic
+            assess_result = _run_assess_internal(task_id, purple_output_subdir)
+            
+            # Return result as message response
+            return _jsonrpc_success(req_id, {
+                "result": {
+                    "type": "object",
+                    "content": assess_result,
+                }
+            })
+        
+        except HTTPException as e:
+            return _jsonrpc_error(req_id, -32000, f"Assessment failed: {e.detail}")
+        except Exception as e:
+            return _jsonrpc_error(req_id, -32000, f"Internal error: {str(e)}")
+
+    # -------------------------------------------------------------------------
     # Unknown method
     # -------------------------------------------------------------------------
     else:
