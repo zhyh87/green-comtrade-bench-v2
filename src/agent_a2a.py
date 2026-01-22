@@ -21,14 +21,16 @@ import requests
 import uvicorn
 from pydantic import BaseModel
 
+from uuid import uuid4
+
 from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
-from a2a.types import AgentCard, AgentSkill, AgentCapabilities, TaskState, Part, TextPart
-from a2a.utils import new_agent_text_message, new_message_from_text
+from a2a.types import AgentCard, AgentSkill, AgentCapabilities, TaskState, Part, TextPart, Message, Role
+from a2a.utils import new_agent_text_message
 
 from .tasks import get_task
 from .judge import score_output
@@ -157,12 +159,16 @@ class GreenComtradeBenchJudge:
                     client = factory.create(agent_card)
 
                     # Send task request to purple agent
-                    task_message = new_message_from_text(
-                        json.dumps({
+                    task_message = Message(
+                        kind="message",
+                        role=Role.user,
+                        parts=[Part(root=TextPart(kind="text", text=json.dumps({
                             "task_id": task_id,
                             "mock_url": self.mock_url,
                             "output_dir": f"/workspace/purple_output/{task_id}"
-                        })
+                        })))],
+                        message_id=uuid4().hex,
+                        context_id=None
                     )
 
                     async for event in client.send_message(task_message):
