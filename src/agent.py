@@ -56,7 +56,7 @@ AGENT_CARD = {
     "name": "green-comtrade-bench",
     "version": "0.1.0",
     "description": "Green Agent benchmark for Comtrade API evaluation",
-    "url": "http://green-agent:9009",
+    "url": "http://green-agent:9009/a2a/rpc",
     "endpoints": {"rpc": "/a2a/rpc", "health": "/healthz"},
     "capabilities": {"streaming": False, "pushNotifications": False},
     "defaultInputModes": ["application/json"],
