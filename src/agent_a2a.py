@@ -23,7 +23,7 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
-from a2a.types import AgentCard, AgentSkill, TaskState
+from a2a.types import AgentCard, AgentSkill, AgentCapabilities, TaskState
 from a2a.utils import new_agent_text_message
 
 from .tasks import get_task
@@ -202,6 +202,9 @@ def create_agent_card(agent_url: str) -> AgentCard:
         version="2.0.0",
         description="Green Agent benchmark for Comtrade API evaluation (A2A)",
         url=agent_url,
+        default_input_modes=["text"],
+        default_output_modes=["text"],
+        capabilities=AgentCapabilities(streaming=False),
         skills=[skill]
     )
 
