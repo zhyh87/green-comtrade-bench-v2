@@ -433,10 +433,16 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
                 config = content.get("config", {})
                 tasks = config.get("tasks", [])
 
-                # Return A2A standard message response
-                # TODO: Implement actual task execution and evaluation
+                # Return A2A standard SendMessageResponse
+                # Generate unique IDs
+                import uuid
+                message_id = str(uuid.uuid4())
+                context_id = message.get("contextId") or str(uuid.uuid4())
+
                 result_message = {
                     "kind": "message",
+                    "messageId": message_id,
+                    "contextId": context_id,
                     "role": "agent",
                     "parts": [{
                         "kind": "text",
@@ -450,8 +456,16 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
                         })
                     }]
                 }
-                response = _jsonrpc_success(req_id, {"message": result_message})
-                logger.info(f"Returning response: {response.body}")
+
+                # SendMessageResponse format
+                send_message_response = {
+                    "message": result_message,
+                    "messageId": message_id,
+                    "contextId": context_id
+                }
+
+                response = _jsonrpc_success(req_id, send_message_response)
+                logger.info(f"Returning SendMessageResponse with messageId={message_id}")
                 return response
 
             # Legacy format: single task_id
