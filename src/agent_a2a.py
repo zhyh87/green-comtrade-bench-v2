@@ -23,7 +23,7 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
-from a2a.types import TaskState
+from a2a.types import AgentCard, AgentSkill, TaskState
 from a2a.utils import new_agent_text_message
 
 from .tasks import get_task
@@ -188,32 +188,22 @@ class GreenExecutor(AgentExecutor):
 # Agent Card
 # ============================================================================
 
-def create_agent_card(agent_url: str) -> dict:
+def create_agent_card(agent_url: str) -> AgentCard:
     """Create agent card for green bench."""
-    return {
-        "name": "green-comtrade-bench",
-        "version": "2.0.0",
-        "description": "Green Agent benchmark for Comtrade API evaluation (A2A)",
-        "url": agent_url,
-        "endpoints": {
-            "rpc": "/a2a/rpc",
-            "health": "/healthz"
-        },
-        "capabilities": {
-            "streaming": False,
-            "pushNotifications": False
-        },
-        "defaultInputModes": ["application/json"],
-        "defaultOutputModes": ["application/json"],
-        "skills": [
-            {
-                "id": "comtrade.benchmark.eval",
-                "name": "evaluate",
-                "description": "Evaluate agent performance on Comtrade API benchmark",
-                "tags": ["benchmark", "evaluation", "a2a"]
-            }
-        ]
-    }
+    skill = AgentSkill(
+        id="comtrade.benchmark.eval",
+        name="evaluate",
+        description="Evaluate agent performance on Comtrade API benchmark",
+        tags=["benchmark", "evaluation", "a2a"]
+    )
+
+    return AgentCard(
+        name="green-comtrade-bench",
+        version="2.0.0",
+        description="Green Agent benchmark for Comtrade API evaluation (A2A)",
+        url=agent_url,
+        skills=[skill]
+    )
 
 
 # ============================================================================
