@@ -30,7 +30,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set image name (lowercase)
-        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+        run: |
+          echo "GREEN_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+          echo "MOCK_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-mock" >> $GITHUB_ENV
 
       - name: Build and push (green-agent)
         uses: docker/build-push-action@v5
@@ -42,5 +44,18 @@ jobs:
           provenance: false
           sbom: false
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.GREEN_IMAGE }}:latest
+            ${{ env.GREEN_IMAGE }}:${{ github.sha }}
+
+      - name: Build and push (mock-service)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.mock
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.MOCK_IMAGE }}:latest
+            ${{ env.MOCK_IMAGE }}:${{ github.sha }}
