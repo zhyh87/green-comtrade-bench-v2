@@ -450,7 +450,9 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
                         })
                     }]
                 }
-                return _jsonrpc_success(req_id, {"message": result_message})
+                response = _jsonrpc_success(req_id, {"message": result_message})
+                logger.info(f"Returning response: {response.body}")
+                return response
 
             # Legacy format: single task_id
             task_id = content.get("task_id")
