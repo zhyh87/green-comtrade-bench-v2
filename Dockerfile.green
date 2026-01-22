@@ -17,5 +17,5 @@ ENV PORT=9009
 
 EXPOSE 9009
 
-ENTRYPOINT ["python", "-m", "src.agent"]
+ENTRYPOINT ["python", "-m", "src.agent_a2a"]
 CMD []
