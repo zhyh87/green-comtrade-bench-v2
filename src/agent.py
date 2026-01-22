@@ -406,10 +406,10 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
     # -------------------------------------------------------------------------
     elif method == "message/send":
         try:
-            # Extract task info from params.message.content
+            # Extract message content
             message = params.get("message", {})
             content = message.get("content", {})
-            
+
             if isinstance(content, str):
                 # Try parsing as JSON if string
                 import json
@@ -417,16 +417,37 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
                     content = json.loads(content)
                 except json.JSONDecodeError:
                     return _jsonrpc_error(req_id, -32602, "Invalid params: content must be valid JSON object")
-            
+
+            # Check if this is AgentBeats EvalRequest format (participants + config)
+            if "participants" in content and "config" in content:
+                logger.info("Received AgentBeats EvalRequest format")
+                participants = content.get("participants", {})
+                config = content.get("config", {})
+                tasks = config.get("tasks", [])
+
+                # For now, return a simple acknowledgment
+                # TODO: Implement actual task execution and evaluation
+                return _jsonrpc_success(req_id, {
+                    "type": "text",
+                    "content": json.dumps({
+                        "message": "Green agent received evaluation request",
+                        "participants": list(participants.keys()),
+                        "tasks_count": len(tasks),
+                        "tasks": tasks,
+                        "note": "Full evaluation logic to be implemented"
+                    })
+                })
+
+            # Legacy format: single task_id
             task_id = content.get("task_id")
             if not task_id:
-                return _jsonrpc_error(req_id, -32602, "Invalid params: task_id is required in content")
-            
+                return _jsonrpc_error(req_id, -32602, "Invalid params: Either (participants+config) or task_id is required in content")
+
             purple_output_subdir = content.get("purple_output_subdir")
-            
+
             # Run assessment using shared logic
             assess_result = _run_assess_internal(task_id, purple_output_subdir)
-            
+
             # Return result as message response
             return _jsonrpc_success(req_id, {
                 "result": {
@@ -434,7 +455,7 @@ def a2a_rpc(req: JsonRpcRequest) -> JSONResponse:
                     "content": assess_result,
                 }
             })
-        
+
         except HTTPException as e:
             return _jsonrpc_error(req_id, -32000, f"Assessment failed: {e.detail}")
         except Exception as e:
