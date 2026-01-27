@@ -12,7 +12,7 @@
   },
   {
     "name": "Dimension Scores",
-    "query": "SELECT results.participants.\"purple-comtrade-baseline-v2\" AS id, ROUND(AVG(COALESCE(r.score_breakdown.correctness, 0)), 1) AS \"Correctness\", ROUND(AVG(COALESCE(r.score_breakdown.completeness, 0)), 1) AS \"Completeness\", ROUND(AVG(COALESCE(r.score_breakdown.robustness, 0)), 1) AS \"Robustness\", ROUND(AVG(COALESCE(r.score_breakdown.efficiency, 0)), 1) AS \"Efficiency\", ROUND(AVG(COALESCE(r.score_breakdown.data_quality, 0)), 1) AS \"Data Quality\", ROUND(AVG(COALESCE(r.score_breakdown.observability, 0)), 1) AS \"Observability\" FROM results CROSS JOIN UNNEST(results.results[1]) AS t(r) GROUP BY results.participants.\"purple-comtrade-baseline-v2\" ORDER BY AVG(r.score_total) DESC;"
+    "query": "SELECT results.participants.\"purple-comtrade-baseline-v2\" AS id, ROUND(AVG(COALESCE(r.score_breakdown.correctness, 0)), 1) AS \"Correctness /30\", ROUND(AVG(COALESCE(r.score_breakdown.completeness, 0)), 1) AS \"Completeness /15\", ROUND(AVG(COALESCE(r.score_breakdown.robustness, 0)), 1) AS \"Robustness /15\", ROUND(AVG(COALESCE(r.score_breakdown.efficiency, 0)), 1) AS \"Efficiency /15\", ROUND(AVG(COALESCE(r.score_breakdown.data_quality, 0)), 1) AS \"Data Quality /15\", ROUND(AVG(COALESCE(r.score_breakdown.observability, 0)), 1) AS \"Observability /10\", ROUND(AVG(r.score_total), 1) AS \"Total /100\" FROM results CROSS JOIN UNNEST(results.results[1]) AS t(r) GROUP BY results.participants.\"purple-comtrade-baseline-v2\" ORDER BY AVG(r.score_total) DESC;"
   }
 ]
 */
@@ -32,15 +32,16 @@ CROSS JOIN UNNEST(results.results[1]) AS t(r)
 GROUP BY results.participants."purple-comtrade-baseline-v2"
 ORDER BY "Score" DESC;
 
--- Query 2: Dimension Scores
+-- Query 2: Dimension Scores (with max per dimension)
 SELECT
     results.participants."purple-comtrade-baseline-v2" AS id,
-    ROUND(AVG(COALESCE(r.score_breakdown.correctness, 0)), 1) AS "Correctness",
-    ROUND(AVG(COALESCE(r.score_breakdown.completeness, 0)), 1) AS "Completeness",
-    ROUND(AVG(COALESCE(r.score_breakdown.robustness, 0)), 1) AS "Robustness",
-    ROUND(AVG(COALESCE(r.score_breakdown.efficiency, 0)), 1) AS "Efficiency",
-    ROUND(AVG(COALESCE(r.score_breakdown.data_quality, 0)), 1) AS "Data Quality",
-    ROUND(AVG(COALESCE(r.score_breakdown.observability, 0)), 1) AS "Observability"
+    ROUND(AVG(COALESCE(r.score_breakdown.correctness, 0)), 1) AS "Correctness /30",
+    ROUND(AVG(COALESCE(r.score_breakdown.completeness, 0)), 1) AS "Completeness /15",
+    ROUND(AVG(COALESCE(r.score_breakdown.robustness, 0)), 1) AS "Robustness /15",
+    ROUND(AVG(COALESCE(r.score_breakdown.efficiency, 0)), 1) AS "Efficiency /15",
+    ROUND(AVG(COALESCE(r.score_breakdown.data_quality, 0)), 1) AS "Data Quality /15",
+    ROUND(AVG(COALESCE(r.score_breakdown.observability, 0)), 1) AS "Observability /10",
+    ROUND(AVG(r.score_total), 1) AS "Total /100"
 FROM results
 CROSS JOIN UNNEST(results.results[1]) AS t(r)
 GROUP BY results.participants."purple-comtrade-baseline-v2"
