@@ -134,26 +134,134 @@ Authoritative task definitions live in `src/tasks.py`.
 
 ## How Scoring Works
 
-Each task is evaluated against three criteria:
+Each task is evaluated against **6 dimensions** (100 points total per task, 700 total for 7 tasks):
 
-- **Completeness** (30 points): All required files present and valid
-- **Correctness** (50 points): Data matches expected output, proper deduplication
-- **Robustness** (20 points): Proper error handling and logging evidence
+| Dimension | Points | What it Measures |
+|-----------|--------|------------------|
+| **correctness** | 30 | Data accuracy: row count, schema, query match, deduplication |
+| **completeness** | 15 | Required files present, metadata fields complete |
+| **robustness** | 15 | Error handling: 429/500 retry logic with backoff |
+| **efficiency** | 15 | Request count relative to task baseline (stable metrics) |
+| **data_quality** | 15 | Type consistency, value ranges, data integrity |
+| **observability** | 10 | Traceable fields for debugging and audit trails |
 
-**Total Score per Task** = Completeness + Correctness + Robustness (max 100 points)
+**Scoring Implementation**: [`src/judge.py:score_output()`](src/judge.py)
+
+---
+
+## Scoring Philosophy / Governance
+
+This benchmark is designed for **reproducibility**, **fairness**, and **anti-gaming**. The following governance rules are enforced:
+
+### Dimension Purposes
+
+| Dimension | Engineering Signal | Why It Matters |
+|-----------|-------------------|----------------|
+| correctness | Core task success | Did the agent solve the actual problem? |
+| completeness | Contract compliance | Are all required outputs present? |
+| robustness | Fault tolerance | Can the agent handle real-world failures? |
+| efficiency | Resource discipline | Does the agent avoid unnecessary work? |
+| data_quality | Output reliability | Is the data trustworthy and well-formed? |
+| observability | Debuggability | Can we trace what happened if something fails? |
+
+### Governance Rules (Anti-Gaming)
+
+**1. Completeness Gate**
+- If `completeness < 100%`, then `efficiency = 0`
+- *Rationale*: You cannot claim efficiency credit for incomplete work
+
+**2. Correctness Gate**
+- If `correctness < 70%` (< 21/30 points), then:
+  - `efficiency` capped at 50%
+  - `observability` capped at 50%
+- *Rationale*: Quality signals are meaningless if the core task is largely wrong
+
+**3. Efficiency Stability**
+- Request count is scored against **task-specific baselines** (not absolute counts)
+- Execution time uses **threshold penalty** (> 45s), not continuous gradient
+- *Rationale*: Pagination-heavy tasks shouldn't be penalized; wall-clock variance shouldn't affect scores
+
+**4. Observability = Traceability, Not Verbosity**
+- Points awarded for **required traceable fields** (task_id, page, request, complete)
+- Log length does NOT affect score
+- *Rationale*: Spamming logs is not observability; being able to debug is
+
+### Thresholds Reference
+
+| Threshold | Value | Effect |
+|-----------|-------|--------|
+| Correctness gate | 70% (21/30 pts) | Below → efficiency/observability capped at 50% |
+| Completeness gate | 100% (15/15 pts) | Below → efficiency = 0 |
+| Time penalty threshold | 45 seconds | Above → lose 3 efficiency points |
+
+### Task Efficiency Baselines
+
+| Task | Expected Requests | Notes |
+|------|-------------------|-------|
+| T1_single_page | 1 | Single page, minimal requests |
+| T2_multi_page | 5 | Multi-page pagination |
+| T3_duplicates | 3 | Deduplication task |
+| T4_rate_limit_429 | 4 | Includes retry overhead |
+| T5_server_error_500 | 4 | Includes retry overhead |
+| T6_page_drift | 3 | Page drift handling |
+| T7_totals_trap | 8 | Larger dataset with totals |
+
+---
+
+## Anti-patterns (Will Score Poorly)
+
+The following behaviors are explicitly penalized or not rewarded:
+
+### ❌ Log Spam Without Traceability
+```text
+# BAD: Verbose but useless
+Processing... Processing... Processing... Done!
+
+# GOOD: Traceable fields
+[task_id=T1] page=1 request=GET /records complete=true
+```
+*Log length doesn't increase score. Missing traceable fields (task_id, page, request, complete) loses points.*
+
+### ❌ Sacrificing Correctness for Speed
+```text
+# BAD: Fast but wrong
+Requests: 1, Rows: 50 (expected: 800)
+```
+*Correctness < 70% caps efficiency at 50%. You can't "win" by being fast and wrong.*
+
+### ❌ Incomplete Outputs Claiming Efficiency
+```text
+# BAD: Missing metadata.json but low request count
+Files: [data.jsonl, run.log]  # metadata.json missing
+```
+*Completeness < 100% → efficiency = 0. Incomplete work gets no efficiency credit.*
+
+### ❌ Hardcoded / Fixture Outputs
+```text
+# BAD: Same output regardless of task
+data.jsonl: [same 100 rows for all tasks]
+```
+*Query matching and row count checks will fail. Correctness will be near 0.*
+
+### ❌ Ignoring Error Handling
+```text
+# BAD: No retry evidence for T4/T5
+run.log: "Got 429, giving up"
+```
+*Robustness score = 0 for fault tasks without proper retry/backoff evidence.*
+
+---
 
 ### Baseline Performance
 
 | Agent Mode | Performance | Notes |
 |------------|-------------|-------|
-| Baseline Purple (fixed) | High scores achievable* | Deterministic, no LLM required |
+| Baseline Purple (fixed) | ~85-95%* | Deterministic, no LLM required |
 | Baseline Purple (ground truth) | 100% (validation) | Validates judge correctness |
 
 *Environment-dependent; requires robust error handling, retries, and deduplication. Verify via CI artifacts.
 
 The baseline agent demonstrates that high scores are achievable with deterministic logic, proper pagination, and robust error handling—no LLM required.
-
-**Scoring Implementation**: The green judge scoring logic is implemented in [`src/judge.py:score_output()`](file:///Users/sarah/Desktop/Antigravity/TEST/green-comtrade-bench/src/judge.py#L102-L204). This function evaluates purple agent outputs against the Evaluation Contract v1.0.0, returning a `ScoreResult` with total score, breakdown (completeness/correctness/robustness), errors, and details.
 
 ## Evaluation contract
 

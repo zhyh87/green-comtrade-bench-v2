@@ -13,6 +13,42 @@ REQUIRED_FILES = ["data.jsonl", "metadata.json", "run.log"]
 # macOS Docker bind-mounts can intermittently raise EDEADLK (Errno 35)
 _RETRY_ERRNOS = {getattr(errno, "EDEADLK", 35), 35}
 
+# ============ GOVERNANCE CONSTANTS ============
+# These thresholds enforce scoring fairness and anti-gaming rules.
+# See README.md "Scoring Philosophy / Governance" for rationale.
+
+# Threshold: correctness must reach 70% for full efficiency/observability credit
+CORRECTNESS_GATE_THRESHOLD = 0.70  # 70% of max 30 points = 21 points
+CORRECTNESS_GATE_PENALTY = 0.50    # efficiency/observability capped at 50% if below threshold
+
+# Completeness must be 100% to earn any efficiency points
+COMPLETENESS_GATE_FULL = 1.0  # Must be fully complete
+
+# Time penalty: only penalize if execution exceeds this threshold (seconds)
+# Avoids penalizing normal variance; only flags truly slow runs
+EXECUTION_TIME_PENALTY_THRESHOLD = 45.0  # seconds
+EXECUTION_TIME_PENALTY_POINTS = 3.0      # max points lost for slow execution
+
+# Per-task efficiency baselines (expected request counts for fair comparison)
+# Prevents pagination-heavy tasks from being unfairly penalized
+TASK_EFFICIENCY_BASELINES: Dict[str, int] = {
+    "T1_single_page": 1,       # Single page, 1 request expected
+    "T2_multi_page": 5,        # Multi-page, ~5 requests expected
+    "T3_duplicates": 3,        # Duplicates task, ~3 requests
+    "T4_rate_limit_429": 4,    # Rate limit with retries, ~4 requests
+    "T5_server_error_500": 4,  # Server error with retries, ~4 requests
+    "T6_page_drift": 3,        # Page drift, ~3 requests
+    "T7_totals_trap": 8,       # Totals trap, more pages, ~8 requests
+}
+
+# Observability: required traceable fields (must be present in log or metadata)
+REQUIRED_OBSERVABILITY_FIELDS = [
+    "task_id",          # Which task was executed
+    "page",             # Pagination tracking (page/offset/cursor)
+    "request",          # Request tracking
+    "complete",         # Stop reason / completion indicator
+]
+
 
 def _with_retries(
     func,
@@ -106,11 +142,18 @@ def score_output(output_dir: Path, task_expected: Dict[str, Any]) -> ScoreResult
     - correctness (30 points): Data accuracy with gradient scoring
     - completeness (15 points): Required files and fields
     - robustness (15 points): Error handling capability  
-    - efficiency (15 points): Request count and execution time
-    - data_quality (15 points): NEW - Content validation, type checking
-    - observability (10 points): NEW - Logging quality, traceability
+    - efficiency (15 points): Request count (stable metrics only)
+    - data_quality (15 points): Content validation, type checking
+    - observability (10 points): Traceable fields presence (not log length)
     
     Total: 100 points with gradient scoring
+    
+    GOVERNANCE RULES (anti-gaming, fairness):
+    - If correctness < 70%, efficiency and observability are capped at 50%
+    - If completeness < 100%, efficiency is 0 (no gaming incomplete outputs)
+    - Efficiency uses task-specific baselines for cross-task fairness
+    - Time scoring uses threshold penalty, not continuous (reproducibility)
+    - Observability checks required fields, not log verbosity
     """
     errors: List[str] = []
     breakdown: Dict[str, float] = {
@@ -289,47 +332,52 @@ def score_output(output_dir: Path, task_expected: Dict[str, Any]) -> ScoreResult
     breakdown["robustness"] = robustness
 
     # ============ EFFICIENCY (15 points) ============
+    # GOVERNANCE: Uses stable metrics only (request count, retry count)
+    # Time uses threshold penalty, not continuous scoring (reproducibility)
     efficiency = 0.0
     
-    # Parse execution metrics from metadata or log
+    # Parse execution metrics from metadata
     exec_time = meta.get("execution_time_seconds", 0)
     request_count = meta.get("request_count", 0)
+    retry_count = meta.get("request_stats", {}).get("retries_total", 0)
     
-    # If not in metadata, try to extract from log
-    if request_count == 0:
-        request_count = log_text.count("request") + log_text.count("fetch") + log_text.count("page")
+    # Get task-specific baseline for fair cross-task comparison
+    task_id = meta.get("task_id", "")
+    baseline_requests = TASK_EFFICIENCY_BASELINES.get(task_id, 5)
     
-    constraints = task_expected.get("constraints", {})
-    max_requests = constraints.get("max_requests", 100)
+    details["efficiency_baseline_requests"] = baseline_requests
+    details["request_count"] = request_count
     
-    # Request efficiency (8 points)
-    if request_count > 0 and max_requests > 0:
-        # Lower request count = better efficiency
-        request_efficiency = 1.0 - min(request_count / max_requests, 1.0)
-        # But must complete the task, so penalize if too few requests for multi-page
-        total_rows = constraints.get("total_rows", 0)
-        page_size = constraints.get("page_size", 100)
-        min_requests_needed = max(1, total_rows // page_size)
-        
-        if request_count >= min_requests_needed:
-            efficiency += (0.5 + request_efficiency * 0.5) * 8.0
+    # Request efficiency (12 points) - relative to task-specific baseline
+    if request_count > 0:
+        # Score based on how close to baseline (not penalizing pagination-heavy tasks)
+        # Perfect = at or below baseline; penalty for excessive requests
+        if request_count <= baseline_requests:
+            request_score = 12.0  # At or below baseline = full points
         else:
-            efficiency += request_efficiency * 4.0
+            # Graceful degradation: lose points proportionally to overage
+            overage_ratio = (request_count - baseline_requests) / max(baseline_requests, 1)
+            request_score = max(0.0, 12.0 * (1.0 - min(overage_ratio, 1.0)))
         
-        details["request_count"] = request_count
-        details["request_efficiency_pct"] = round(request_efficiency * 100, 1)
+        efficiency += request_score
+        details["request_efficiency_pct"] = round((request_score / 12.0) * 100, 1)
     else:
-        efficiency += 8.0  # Default if not measurable
+        efficiency += 12.0  # Default if not measurable (benefit of doubt)
     
-    # Time efficiency (7 points) - if available
+    # Time penalty (3 points) - threshold-based, not continuous (reproducibility)
+    # Only penalize if execution exceeds threshold; avoids wall-clock variance issues
     if exec_time > 0:
-        # Assume 60 seconds is baseline, faster = better
-        time_efficiency = max(0, 1.0 - exec_time / 60.0)
-        efficiency += time_efficiency * 7.0
         details["execution_time_seconds"] = exec_time
-        details["time_efficiency_pct"] = round(time_efficiency * 100, 1)
+        if exec_time <= EXECUTION_TIME_PENALTY_THRESHOLD:
+            efficiency += 3.0  # Within threshold = full points
+            details["time_penalty_applied"] = False
+        else:
+            # Exceeded threshold: apply penalty (not gradient, just penalty)
+            efficiency += 0.0
+            details["time_penalty_applied"] = True
+            errors.append(f"Execution time {exec_time:.1f}s exceeded threshold {EXECUTION_TIME_PENALTY_THRESHOLD}s")
     else:
-        efficiency += 7.0  # Default if not measurable
+        efficiency += 3.0  # Default if not measurable
 
     breakdown["efficiency"] = min(15.0, efficiency)
 
@@ -362,40 +410,94 @@ def score_output(output_dir: Path, task_expected: Dict[str, Any]) -> ScoreResult
     
     breakdown["data_quality"] = min(15.0, data_quality)
 
-    # ============ OBSERVABILITY (10 points) - NEW ============
+    # ============ OBSERVABILITY (10 points) ============
+    # GOVERNANCE: Checks required traceable fields, NOT log verbosity
+    # This prevents gaming by log spam while rewarding actual traceability
     observability = 0.0
     log_lines = log_text.strip().split('\n')
-    
-    # Log completeness (4 points) - sufficient logging
-    if len(log_lines) >= 10:
-        observability += 4.0
-    elif len(log_lines) >= 5:
-        observability += 3.0
-    elif len(log_lines) >= 2:
-        observability += 2.0
     details["log_line_count"] = len(log_lines)
     
-    # Structured logging (3 points) - has INFO/WARN/ERROR levels
+    # Required traceable fields check (6 points) - 1.5 points per field
+    # These fields enable post-mortem debugging and audit trails
+    traceable_fields_found = []
+    traceable_fields_missing = []
+    
+    for field in REQUIRED_OBSERVABILITY_FIELDS:
+        # Check both log and metadata for presence
+        field_in_log = field.lower() in log_text
+        field_in_meta = field in str(meta).lower()
+        if field_in_log or field_in_meta:
+            traceable_fields_found.append(field)
+        else:
+            traceable_fields_missing.append(field)
+    
+    traceable_score = (len(traceable_fields_found) / len(REQUIRED_OBSERVABILITY_FIELDS)) * 6.0
+    observability += traceable_score
+    details["traceable_fields_found"] = traceable_fields_found
+    details["traceable_fields_missing"] = traceable_fields_missing
+    details["traceability_pct"] = round((len(traceable_fields_found) / len(REQUIRED_OBSERVABILITY_FIELDS)) * 100, 1)
+    
+    if traceable_fields_missing:
+        errors.append(f"Missing traceable fields: {traceable_fields_missing}")
+    
+    # Structured logging (2 points) - has INFO/WARN/ERROR levels
+    # Indicates proper log level discipline
     has_info = "info" in log_text
     has_warn = "warn" in log_text
     has_error = "error" in log_text
     log_levels = sum([has_info, has_warn, has_error])
-    observability += log_levels
+    observability += min(2.0, log_levels * 0.67)  # Cap at 2 points
     details["log_levels_used"] = log_levels
     
-    # Traceability (3 points) - timestamps, task_id mentions
-    has_timestamp = any(c.isdigit() and ':' in log_text for c in log_text[:100])
-    has_task_id = meta.get("task_id", "").lower() in log_text
-    has_request_tracking = "request" in log_text or "page" in log_text
-    traceability = sum([has_timestamp, has_task_id, has_request_tracking])
-    observability += traceability
-    details["traceability_score"] = traceability
+    # Stop reason / completion indicator (2 points)
+    # Must be able to determine why the task stopped
+    has_stop_reason = any(kw in log_text for kw in ["complete", "finish", "done", "success", "fail", "error", "stop"])
+    has_stop_in_meta = "stop_reason" in meta or "pagination_stats" in meta
+    if has_stop_reason or has_stop_in_meta:
+        observability += 2.0
+        details["has_stop_reason"] = True
+    else:
+        details["has_stop_reason"] = False
+        errors.append("No stop reason indicator found in log or metadata")
     
     breakdown["observability"] = min(10.0, observability)
 
     details["data_sha256"] = _sha256_file(data_path)
     details["metadata_sha256"] = _sha256_file(meta_path)
 
+    # ============ GOVERNANCE GATES ============
+    # Apply threshold-based caps to prevent gaming
+    
+    governance_applied = []
+    
+    # Gate 1: Completeness gate - if not 100% complete, efficiency = 0
+    # Rationale: Can't claim efficiency credit for incomplete work
+    completeness_ratio = breakdown["completeness"] / 15.0
+    if completeness_ratio < COMPLETENESS_GATE_FULL:
+        original_efficiency = breakdown["efficiency"]
+        breakdown["efficiency"] = 0.0
+        governance_applied.append(f"completeness_gate: efficiency {original_efficiency:.1f} → 0 (completeness {completeness_ratio*100:.0f}% < 100%)")
+    
+    # Gate 2: Correctness gate - if < 70%, cap efficiency and observability at 50%
+    # Rationale: Can't claim quality signals if core task is largely wrong
+    correctness_ratio = breakdown["correctness"] / 30.0
+    if correctness_ratio < CORRECTNESS_GATE_THRESHOLD:
+        # Apply 50% cap to efficiency (if not already zeroed by completeness gate)
+        if breakdown["efficiency"] > 0:
+            original_efficiency = breakdown["efficiency"]
+            capped_efficiency = original_efficiency * CORRECTNESS_GATE_PENALTY
+            breakdown["efficiency"] = capped_efficiency
+            governance_applied.append(f"correctness_gate: efficiency {original_efficiency:.1f} → {capped_efficiency:.1f} (correctness {correctness_ratio*100:.0f}% < 70%)")
+        
+        # Apply 50% cap to observability
+        original_observability = breakdown["observability"]
+        capped_observability = original_observability * CORRECTNESS_GATE_PENALTY
+        breakdown["observability"] = capped_observability
+        governance_applied.append(f"correctness_gate: observability {original_observability:.1f} → {capped_observability:.1f} (correctness {correctness_ratio*100:.0f}% < 70%)")
+    
+    if governance_applied:
+        details["governance_rules_applied"] = governance_applied
+    
     total = sum(breakdown.values())
     return ScoreResult(total=round(total, 1), breakdown=breakdown, errors=errors, details=details)
 
